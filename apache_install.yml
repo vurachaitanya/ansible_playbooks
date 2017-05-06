@@ -1,0 +1,13 @@
+---
+- hosts: localhost
+  become: yes
+  tasks:
+   - name: Ensure apache is at latest version
+     apt: 
+      name: apache2 
+      state: latest
+
+   - name: Write the apache config file
+     template: 
+       src: /srv/index.html 
+       dest: /var/www/html/index.html
