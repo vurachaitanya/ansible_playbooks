@@ -11,3 +11,7 @@
      template: 
        src: /srv/index.html 
        dest: /var/www/html/index.html
+   - name: Starting apache services
+     service:
+      name: apache2
+      state: started
