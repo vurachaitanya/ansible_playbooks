@@ -1,0 +1,10 @@
+---
+- hosts: localhost
+  become: yes
+  gather_facts: false
+  vars: 
+   user: test1
+  tasks:
+   - name: Creating user {{ user }} 
+     user:
+       name: "{{ user }}" 
