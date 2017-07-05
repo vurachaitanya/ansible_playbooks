@@ -1,0 +1,6 @@
+---
+- hosts: localhost
+  tasks:
+  - name: Testing Command and shell output difference
+    command: ps
+    shell: ps

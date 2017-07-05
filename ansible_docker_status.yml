@@ -1,0 +1,6 @@
+---
+- hosts: localhost
+  tasks:
+  - name: Check the status of docker
+    command: docker ps -a
+    command: docker images
