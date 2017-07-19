@@ -1,0 +1,181 @@
+cat /usr/local/bin/pb
+#!/bin/bash
+
+usage() {
+echo "Usage: $0 [-r] [-p] [-k] [-n] [-d] [-m]  ( [-f file] \| \"hostname hostname\" )
+
+Example: $0 \"host1 host2 host3\" uptime
+         $0 -f /tmp/hosts "/usr/local/sbin/run_setups -a"
+  -d                : Debug
+  -n                : Dry run
+  -f file           : File with list of hosts
+  -r                : Run with sudo
+  -u                : Run user (default: $(whoami))
+  -p                : Ask ssh password
+  -k                : Ask for sudo pass
+  -t                : specify number of parallel processes to use
+  -o                : Condense output to one-line
+  -m "mdb query"    : Get server list from MDB
+  -l                : Connect to LDOMS on control domain
+  -h                : This help
+  "
+  exit
+}
+
+if [ "$#" -lt 2 ]; then
+    usage
+fi
+
+# Temporary task runbook
+AP=`mktemp -p /tmp -q`
+
+while getopts "hkodrpnm:f:l:t:u:" opt; do
+  case $opt in
+    r)
+      echo "WARNING: Running with sudo"
+      SUDO="--sudo"
+      SUDO_CMD="sudo"
+      ;;
+    t)
+      PARALLEL="-f $OPTARG"
+      ;;
+    o)
+      ONELINE="-o"
+      ;;
+    k)
+      ASKSUDO="-K"
+      ;;
+    u)
+      RUNUSER="-u $OPTARG"
+      ;;
+    p)
+      SSHPASS="--ask-pass"
+      ;;
+    f)
+      FILE_LIST="$OPTARG"
+      ;;
+    n)
+      echo " -- DRY RUN -- "
+      DRYRUN="true"
+      ;;
+    d)
+      echo " -- DEBUG -- "
+      DEBUG="-vvv"
+      ;;
+    m)
+      MDB_QUERY="$OPTARG"
+      ;;
+    l)
+      CONTROL_DOMAINS="$OPTARG"
+      ;;
+    h)
+      usage
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      usage
+      ;;
+  esac
+done
+
+shift $((OPTIND-1))
+
+# Use hardcoded password otherwise prompt user for password
+if [[ -f /etc/.ansible_pass  && -z $SSHPASS ]]; then
+    source /etc/.ansible_pass
+fi
+#    PP=$P_AD
+
+#else
+#    ASKSUDO="-K"
+#fi
+
+ASKSUDO="-K"
+
+# If -k is used without -r then don't run sudo
+if [[ $SUDO = "" ]] && [[ $ASKSUDO = "-K" ]]; then
+    SUDO=""
+    ASKSUDO=""
+fi
+
+# Deal with the -l switch otherwise take a string of hosts
+if [[ -n $CONTROL_DOMAINS ]]; then
+    echo `/usr2/jrosenko/bin/cssh_ldoms -n $CONTROL_DOMAINS`
+    LDOM_LIST=`/usr2/jrosenko/bin/cssh_ldoms -n $CONTROL_DOMAINS`
+    SERVER_LIST="$SERVER_LIST $LDOM_LIST"
+fi
+
+if [[ -n $MDB_QUERY ]]; then
+    SERVER_LIST=$(/usr/local/bin/mdb $MDB_QUERY return name | /pkg/sysadmin/bin/mdbrotate | grep -v "No matches")
+    #echo $SERVER_LIST
+
+elif [[ -n $FILE_LIST ]]; then   # Deal with the -f switch, otherwise take a string of hosts
+    SERVER_LIST="$SERVER_LIST "`cat $FILE_LIST | grep -v ^# | xargs`
+else
+    SERVER_LIST="$SERVER_LIST "$1
+    shift
+fi
+
+if [[ -z $SERVER_LIST ]]; then
+    echo No servers specified
+    exit
+fi
+
+
+# Replace any commas with spaces
+SERVER_LIST=`echo $SERVER_LIST | sed 's/[,:;|]/ /g'`
+
+COMMAND=$@
+
+if [[ -z $COMMAND ]]; then
+    echo No command specified
+    exit
+fi
+
+echo "Server list: $SERVER_LIST"
+echo "Command: $SUDO_CMD $COMMAND"
+echo ""
+
+if [[ -n $MDB_QUERY ]] && [[ -n $SUDO ]]; then
+    read -p "You are running sudo against a dynamic host list.  Are you sure? (y/n) " yn
+    [[ $yn != "y" ]] && exit
+fi
+
+echo "[temprun]" > $AP
+for SERVER in $SERVER_LIST; do
+    [[ -n $USE_MDB ]] && read GV UAAA <<< `/usr/local/bin/mdb $SERVER return gv_version uaaaversion| mdbrotate`
+    if [[ $GV =~ "DMZ" || -n $USE_MDB ]]; then
+        PP=$P_DMZ
+    elif [[ $UAAA =~ "Not present" || -n $USE_MDB ]]; then
+        PP=$P_UNIX
+    else
+        PP=$P_AD
+    fi
+    if [ -z $ASKSUDO ]; then
+        echo "$SERVER ansible_ssh_pass='$PP' ansible_sudo_pass='$PP'" >> $AP
+    else
+        echo "$SERVER" >> $AP
+    fi
+done
+
+[[ -n $USE_MDB ]] && unset ASKSUDO
+
+#cd $ANSIBLE_HOME
+#source ./hacking/env-setup -q
+#cd - > /dev/null
+export ANSIBLE_INVENTORY=$AP
+export ANSIBLE_REMOTE_TEMP=/tmp
+export ANSIBLE_HOST_KEY_CHECKING=False
+
+[[ ! -f $AP ]] && echo "No playbook found" && exit 1
+if [[ -n $DRYRUN ]]; then
+    echo "task file: $AP"
+    echo ansible $ASKSUDO $RUNUSER $SSHPASS $DEBUG $ONELINE $PARALLEL all -a \"bash -c \"$SUDO_CMD $COMMAND\"\"
+else
+    COM="ansible  $ASKSUDO $RUNUSER $SSHPASS $DEBUG $ONELINE $PARALLEL all -a 'bash -c \"$COMMAND\"' $SUDO"
+    eval $COM
+fi
+[[ -n $DRYRUN ]] && rm $AP
+rm $AP
+
+
