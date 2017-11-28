@@ -1,0 +1,8 @@
+---
+- hosts: localhost
+  remote_user: root
+  tasks:
+  - name: Check logs for Udev
+    script: "/bin/journalctl -p err|grep udevd"
+    register: out
+  - debug: var=out.stdout_lines
