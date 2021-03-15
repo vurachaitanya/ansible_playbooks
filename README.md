@@ -5,12 +5,25 @@ Ansible playbooks
 -	Playbooks are written in YAML only
 - Sample file:
 ```
-- hosts: node1
-- tasks: 
-  - name: Apache is at lates version
+- hosts: localhost
+- tasks:
+  - name: "Apache is at lates version"
+    yum:
+      name: httpd
+      state: latest
+```
+- Sample file for looping using Vars:
+```
+  tasks:
+    - name: install dependencies
       yum:
-	    name: httpd
-		state: latest
+        name: "{{ package }} "
+        state: present
+      vars:
+        package:
+        - wget
+        - java-1.8.0-openjdk-devel
+        - git
 ```
 
 ##### Ansible Cheatsheet: 
